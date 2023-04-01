@@ -22,10 +22,11 @@
 //#define DHTTYPE    DHT21     // DHT 21 (AM2301)
 
 DHT dht(DHTPIN, DHTTYPE);
-
-//MAC Address of the receiver 
+float min2 = 100;  //temperatura min si no se igual a 100 se va a 0
+float max2;  //temperatura maxima
+//MAC Address of the receiver osea de este dispositivo aun hay que compara para ver si se esta utilizando *******************************************
 uint8_t broadcastAddress[] = {0x70, 0xB8, 0xF6, 0x5B, 0x93, 0x2C};
-
+//*************************************************************************
 void IRAM_ATTR funcionDeInterrupcion(); //IRAM_ATTR hace que la funcion se guarde en la memoria RAM y no en la flash para que sea mas rapido
 volatile unsigned long tiempoDeInterrupcionAnterior = 0;  //sirve para omitir rebotes
 //Structure example to send data
@@ -35,19 +36,21 @@ typedef struct struct_message {
     float temp;
     float hum;
     float readingId;
+    float min;
+    float max;
 } struct_message;
 
 //Create a struct_message called myData
 struct_message myData;
 int board=1;
+int numboards=3; //maximo numero de esp32 comunicandose al espwebserver
 unsigned long previousMillis = 0;   // Stores last time temperature was published
 const long interval = 2000;        // Interval at which to publish sensor readings
 float readingId = 0;
 //unsigned int readingId = 0; //cuando era solo entero
 
 // Insert your SSID
-constexpr char WIFI_SSID[] = "INFINITUM59W1_2.4"; // "INFINITUM37032"//INFINITUM59W1_2.4//INFINITUMD378
-constexpr char WIFI_SSID2[] = "ESPWROOM325BF6B8702C93";
+constexpr char WIFI_SSID[] = "ESPWROOM325BF6B8702C93"; // "INFINITUM37032"//INFINITUM59W1_2.4//INFINITUMD378
 int32_t getWiFiChannel(const char *ssid) {
   if (int32_t n = WiFi.scanNetworks()) {
       for (uint8_t i=0; i<n; i++) {
@@ -75,6 +78,22 @@ float readDHTTemperature() {
     return t;
   }
 }
+float readDHTTemperature2() {
+  // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
+  // Read temperature as Celsius (the default)
+  float t2 = dht.readTemperature();
+  // Read temperature as Fahrenheit (isFahrenheit = true)
+  //float t = dht.readTemperature(true);
+  // Check if any reads failed and exit early (to try again).
+  if (isnan(t2)) {    
+    Serial.println("Failed to read from DHT sensor!");
+    return 500;
+  }
+  else {
+    Serial.println(t2);
+    return t2;
+  }
+}
 
 float readDHTHumidity() {
   // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
@@ -89,8 +108,27 @@ float readDHTHumidity() {
   }
 }
 
-
+float tempMin(){
   
+  float min = readDHTTemperature2();
+  if(min < min2){
+    min2 = min;
+  }else if(min == 0){
+    min2 = readDHTTemperature2();
+  }
+  Serial.println(min2);
+  return min2;
+}
+  
+float tempMax(){
+  
+  float max = dht.readTemperature();
+  if(max > max2){
+    max2 = max;
+  }
+  Serial.println(max2);
+  return max2;
+}
 float getWiFiRsi(const char *ssid2) {
 if (int32_t n = WiFi.scanNetworks()) {
     for (uint8_t i=0; i<n; i++) {
@@ -107,7 +145,7 @@ void IRAM_ATTR funcionDeInterrupcion(){ //esta funcion de interrupcion no se man
     if(millis() - tiempoDeInterrupcionAnterior > tiempoDeRebote){
     Serial.println("Interrupción "+board);
     Serial.flush();
-    if(board>=4){
+    if(board > numboards){
       board=1;
     }else{
       board++;
@@ -178,8 +216,9 @@ void loop() {
     myData.id = board;//BOARD_ID;
     myData.temp = readDHTTemperature();
     myData.hum = readDHTHumidity();
-    myData.readingId = getWiFiRsi(WIFI_SSID2); //readingId++; //-------------------------------------------------------------
-     
+    myData.readingId = getWiFiRsi(WIFI_SSID); //readingId++; //-------------------------------------------------------------
+    myData.min = tempMin();
+    myData.max = tempMax();
     //Send message via ESP-NOW
     esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &myData, sizeof(myData));
     if (result == ESP_OK) {
